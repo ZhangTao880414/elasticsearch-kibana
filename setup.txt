@@ -219,3 +219,23 @@ docker run -d --privileged=true  \
   --volume="/proc:/hostfs/proc:ro" \
   --volume="/:/hostfs:ro" \
   docker.elastic.co/beats/metricbeat:7.9.3
+
+
+
+
+[root@localhost ~]# docker images
+REPOSITORY                           TAG             IMAGE ID       CREATED                                                   SIZE
+kicbase/stable                       v0.0.30         1312ccd2422d   11 months ago                                             1.14GB
+gitlab/gitlab-ce                     latest          46cd6954564a   13 months ago                                             2.36GB
+postgres                             9.6             c5e8774084fa   13 months ago                                             200MB
+postgres                             12              58bff7631346   13 months ago                                             371MB
+mysql                                5.7             c20987f18b13   13 months ago                                             448MB
+sonarqube                            community       d3899771462f   13 months ago                                             514MB
+jenkins/jenkins                      lts             2a4bbe50c40b   14 months ago                                             441MB
+kibana                               7.9.3           f9f7fac59a10   2 years ago                                               1.18GB
+elasticsearch                        7.9.3           1ab13f928dc8   2 years ago                                               742MB
+docker.elastic.co/beats/metricbeat   7.9.3           0f3cbf6d0afb   2 years ago                                               505MB
+sonarqube                            8.4-community   3287e6831017   2 years ago                                               461MB
+sonarqube                            7.4-community   df1feff9aacf   4 years ago                                               830MB
+mobz/elasticsearch-head              5               b19a5c98e43b   6 years ago                                               824MB
+
