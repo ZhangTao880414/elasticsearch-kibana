@@ -1,0 +1,221 @@
+https://blog.csdn.net/frrree/article/details/120453668
+
+使用docker搭建es集群
+一、安装es
+1.1 拉取es镜像
+docker pull elasticsearch:7.9.3（重点7.x开始不需要手动下载x-pack）
+
+1.2 配置es并启动
+mkdir -p data/es/config
+cd data/es
+mkdir -p node1/data
+chmod 777 data
+mkdir node2/data
+chmod 777 data
+mkdir node3/data
+chmod 777 data
+
+cd config
+vim es1.yml
+
+配置
+
+cluster.name: elasticsearch-cluster
+node.name: es1
+network.bind_host: 0.0.0.0
+network.publish_host: (此处填ip)
+http.port: 9200
+transport.tcp.port: 9300
+http.cors.enabled: true
+http.cors.allow-origin: "*"
+node.master: true
+node.data: true
+discovery.zen.ping.unicast.hosts: ["ip:9300","ip:9301","ip:9302"]
+discovery.zen.minimum_master_nodes: 2
+cluster.initial_master_nodes: ["es1"]
+xpack.security.enabled: true
+xpack.security.authc.accept_default_password: true
+xpack.security.transport.ssl.enabled: true
+#xpack.security.transport.ssl.verification_mode: certificate
+#xpack.security.transport.ssl.keystore.path: /usr/share/elasticsearch/config/elastic-certificates.p12
+#xpack.security.transport.ssl.truststore.path: /usr/share/elasticsearch/config/elastic-certificates.p12
+http.cors.allow-headers: Authorization,X-Requested-With,Content-Length,Content-Type
+
+重复动作生成es2.yml、es3.yml
+调整jvm限制
+
+vim /etc/sysctl.conf
+vm.max_map_count=262144
+启用配置
+sysctl -p
+
+启动es
+docker run -e ES_JAVA_OPTS="-Xms256m -Xmx256m" -d -p 9200:9200 -p 9300:9300 -v /data/es/config/es1.yml:/usr/share/elasticsearch/config/elasticsearch.yml -v /data/es/node1/data:/usr/share/elasticsearch/data --name ES01 elasticsearch:7.9.3
+
+docker run -e ES_JAVA_OPTS="-Xms256m -Xmx256m" -d -p 9201:9201 -p 9301:9301 -v /data/es/config/es2.yml:/usr/share/elasticsearch/config/elasticsearch.yml -v /data/es/node1/data:/usr/share/elasticsearch/data --name ES02 elasticsearch:7.9.3
+
+docker run -e ES_JAVA_OPTS="-Xms256m -Xmx256m" -d -p 9202:9202-p 9302:9302 -v /data/es/config/es3.yml:/usr/share/elasticsearch/config/elasticsearch.yml -v /data/es/node1/data:/usr/share/elasticsearch/data --name ES03 elasticsearch:7.9.3
+
+1.3开启端口
+firewall-cmd --add-port=9300/tcp
+firewall-cmd --add-port=9301/tcp
+firewall-cmd --add-port=9302/tcp
+
+1.4验证
+http://ip:9200/_cat/health?v
+
+状态为green为健康
+
+二、安装ik分词器
+docker exec -it ES01 bash
+elasticsearch-plugin install https://github.com/medcl/elasticsearch-analysis-ik/releases/download/v7.9.3/elasticsearch-analysis-ik-7.9.3.zip
+
+各节点重复此动作
+
+es默认分词器对中文分词非常不友好，会把一句话拆成每一个字（想要了解可以去查下资料）
+
+三、安装elasticsearch-head:5
+docker pull mobz/elasticsearch-head:5
+docker run -d -p 9100:9100 --name head5  mobz/elasticsearch-head:5
+
+访问页面
+http://ip:9100/
+
+四、安装Kibana
+docker pull kibana:7.9.3
+cd /data
+mkdir -p kibana/config
+cd kibana/config
+vim kibana.yml
+
+server.name: kibana
+server.host: "0"
+elasticsearch.hosts: [ "http://ip:9200","http://ip:9201","http://ip:9202" ]
+xpack.monitoring.ui.container.elasticsearch.enabled: true
+#elasticsearch.username: elastic
+#elasticsearch.password: "123456"
+#xpack.security.enabled: true
+xpack.security.encryptionKey: "c77effba756146d382ebc79b279fd694"
+i18n.locale: "zh-CN"
+
+启动
+docker run -d --name=kibana --restart=always -p 5601:5601 -v /data/kibana/config/kibana.yml:/usr/share/kibana/config/kibana.yml kibana:7.9.3
+
+五、开启es安全认证
+生成证书
+
+docker exec -it ES01 bash
+bin/elasticsearch-certutil ca
+执行完此操作后会生成（这里会配置一个密码，执行下一步操作会用）
+
+
+执行此命令的设置密码不用设，直接回车
+
+bin/elasticsearch-certutil cert --ca elastic-stack-ca.p12
+
+将此处生成的文件放到config下
+
+并给他配置权限（执行两次）
+
+chmod 777 elastic-certificates.p12 
+
+分配用户组
+
+chown elasticsearch elastic-certificates.p12 
+
+更改es配置
+
+vim es1.yml
+
+将上面注释的配置打开
+
+xpack.security.transport.ssl.verification_mode: certificate
+xpack.security.transport.ssl.keystore.path: /usr/share/elasticsearch/config/elastic-certificates.p12
+xpack.security.transport.ssl.truststore.path: /usr/share/elasticsearch/config/elastic-certificates.p12		
+
+全部修改完了后重启es
+重启es后要生成密码，进入es容器
+
+docker exec -it ES01 bash
+bin/elasticsearch-setup-passwords interactive
+
+这里会让配置好多密码，挨个配置，配置成功后修改kibana配置
+这里我已经配置过了不呢重复执行，从网上找了个图片
+
+打开上面kibana.yml的注释
+
+elasticsearch.username: elastic
+elasticsearch.password: "123456"
+xpack.security.enabled: true
+
+重启kibana,再访问
+
+
+
+六、安装metricbeat
+docker pull docker.elastic.co/beats/metricbeat:7.9.3
+cd /data
+mkdir -p metricbeat/config
+cd metricbeat/config
+vim metricbeat.yml 
+
+配置信息
+
+metricbeat.modules:
+- module: system
+  period: 10s
+  metricsets:
+    - cpu
+    - load
+    - memory
+    - network
+    - process
+    - process_summary
+    #- core
+    #- diskio
+    #- socket
+  processes: ['.*']
+  process.include_top_n:
+    by_cpu: 5      # include top 5 processes by CPU
+    by_memory: 5   # include top 5 processes by memory
+- module: system
+  period: 1m
+  metricsets:
+    - filesystem
+    - fsstat
+  processors:
+  - drop_event.when.regexp:
+     system.filesystem.mount_point: '^/(sys|cgroup|proc|dev|etc|host|lib)($|/)'
+- module: system
+  period: 15m
+  metricsets:
+    - uptime
+
+# 直接发送elasticsearch
+output.elasticsearch:
+  hosts: ["ip:9200","ip:9201","ip:9202"]
+  username: "elastic"
+  password: "1234556"
+
+# 要加载仪表板，可以在metricbeat设置中启用仪表板加载。当仪表板加载被启用时，Metricbeat使用Kibana API来加载样本仪表板。只有当Metricbeat启动时，才会尝试仪表板加载。
+# 设置kibana服务地址
+setup.kibana:
+  host: "ip:5601"
+  username: "elastic"
+  password: "123456"
+# 加载默认的仪表盘样式
+setup.dashboards.enabled: true
+# 设置如果存在模板，则不覆盖原有模板
+setup.template.overwrite: false
+
+启动metricbeat
+
+docker run -d --privileged=true  \
+  --name=metricbeat \
+  --user=root \
+  --volume="$(pwd)/metricbeat.yml:/usr/share/metricbeat/metricbeat.yml:ro" \
+  --volume="/var/run/docker.sock:/var/run/docker.sock:ro" \
+  --volume="/sys/fs/cgroup:/hostfs/sys/fs/cgroup:ro" \
+  --volume="/proc:/hostfs/proc:ro" \
+  --volume="/:/hostfs:ro" \
+  docker.elastic.co/beats/metricbeat:7.9.3
